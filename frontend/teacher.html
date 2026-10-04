@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="description" content="Teacher console for Snap the Board.">
+  <title>Teacher console - Snap the Board</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
+  <script src="common.js" defer></script>
+  <script src="teacher.js" defer></script>
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <div>
+        <h1>Snap the Board</h1>
+        <p class="muted">Teacher console</p>
+      </div>
+      <button class="btn quiet small" id="signOut" type="button" hidden>Sign out</button>
+    </header>
+
+    <p id="msg" class="notice" role="status" aria-live="polite" hidden></p>
+
+    <section class="card" id="auth">
+      <form id="authForm" class="row">
+        <label class="field grow">
+          <span>Teacher passcode</span>
+          <input id="passcode" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="btn" id="signIn" type="submit">Sign in</button>
+      </form>
+    </section>
+
+    <div id="app" hidden>
+      <section class="card stack">
+        <h2>Class</h2>
+        <p id="noClass" class="muted" hidden>Create your first class to get started.</p>
+        <div id="classPicker" class="row" hidden>
+          <label class="field grow">
+            <span>Choose a class</span>
+            <select id="classSelect"></select>
+          </label>
+        </div>
+        <form id="newClassForm" class="row">
+          <label class="field grow">
+            <span>New class name</span>
+            <input id="className" type="text" maxlength="80" placeholder="Data Structures, Section B">
+          </label>
+          <button class="btn quiet" id="createClass" type="submit">Create class</button>
+        </form>
+        <div id="linkBox" hidden>
+          <p class="muted small">Student link. Share it once; students open it any time.</p>
+          <p><a id="studentLink" target="_blank" rel="noopener"></a></p>
+          <p><button class="btn quiet small" id="copyLink" type="button">Copy link</button></p>
+        </div>
+      </section>
+
+      <div id="classPanels" hidden>
+        <section class="card">
+          <h2>Students</h2>
+          <p class="muted small">Each student receives one email asking them to confirm. They get notes only after confirming, and it may land in spam.</p>
+          <form id="studentsForm" class="stack">
+            <label class="field">
+              <span>Student emails</span>
+              <textarea id="emails" placeholder="Paste emails, one per line or separated by commas"></textarea>
+            </label>
+            <button class="btn" id="addStudents" type="submit">Add students</button>
+          </form>
+          <p class="muted small" id="rosterCount"></p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Email</th><th>Status</th><th></th></tr></thead>
+              <tbody id="roster"></tbody>
+            </table>
+          </div>
+          <p class="muted small">Pending: not confirmed yet. Not subscribed: the confirmation expired or the student unsubscribed. Add the email again to send a new confirmation.</p>
+        </section>
+
+        <section class="card">
+          <h2>Board photos</h2>
+          <p class="muted small" id="remaining"></p>
+          <div class="row" style="margin-top:12px">
+            <label class="btn file">Take photo
+              <input id="cam" type="file" accept="image/*" capture="environment">
+            </label>
+            <label class="btn quiet file">Choose images
+              <input id="files" type="file" accept="image/*" multiple>
+            </label>
+          </div>
+          <ul class="queue" id="queue" aria-live="polite"></ul>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Board</th><th>Status</th><th></th></tr></thead>
+              <tbody id="boards"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
