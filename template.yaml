@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Snap the Board - whiteboard photos become class notes
+
+Parameters:
+  ModelId:
+    Type: String
+    Default: apac.amazon.nova-lite-v1:0
+    Description: Bedrock vision model or inference profile ID
+  TeacherKeyHash:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^[a-f0-9]{64}$'
+    Description: SHA-256 of the teacher passcode (scripts/deploy.sh computes it)
+  SiteUrl:
+    Type: String
+    Default: ''
+    Description: Where the frontend is hosted, used for links in emails
+  DailyLimit:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 500
+    Description: Maximum photos read per day (hard cost cap)
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    MemorySize: 256
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref DataTable
+        BUCKET_NAME: !Sub 'snap-board-${AWS::AccountId}-${AWS::Region}'
+        DAILY_LIMIT: !Ref DailyLimit
+        SITE_URL: !Ref SiteUrl
+
+Resources:
+  DataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+
+  BoardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'snap-board-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [POST]
+            AllowedOrigins: ['*']
+            AllowedHeaders: ['*']
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-photos
+            Status: Enabled
+            Prefix: boards/
+            ExpirationInDays: 30
+          - Id: abort-partial-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: [GET, POST, DELETE, OPTIONS]
+        AllowHeaders: [content-type, x-teacher-key]
+        MaxAge: 600
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
+  ApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-api'
+      RetentionInDays: 14
+
+  ProcessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-process'
+      RetentionInDays: 14
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-api'
+      CodeUri: api/
+      Handler: app.handler
+      Timeout: 25
+      Environment:
+        Variables:
+          TEACHER_KEY_HASH: !Ref TeacherKeyHash
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
+        - S3CrudPolicy:
+            BucketName: !Sub 'snap-board-${AWS::AccountId}-${AWS::Region}'
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sns:CreateTopic
+                - sns:Subscribe
+                - sns:Unsubscribe
+                - sns:ListSubscriptionsByTopic
+              Resource: !Sub 'arn:aws:sns:${AWS::Region}:${AWS::AccountId}:snap-class-*'
+      Events:
+        Any:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+  ProcessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-process'
+      CodeUri: process/
+      Handler: app.handler
+      Timeout: 120
+      MemorySize: 512
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+      Environment:
+        Variables:
+          MODEL_ID: !Ref ModelId
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
+        - S3ReadPolicy:
+            BucketName: !Sub 'snap-board-${AWS::AccountId}-${AWS::Region}'
+        - Statement:
+            - Effect: Allow
+              Action: sns:Publish
+              Resource: !Sub 'arn:aws:sns:${AWS::Region}:${AWS::AccountId}:snap-class-*'
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*'
+                - 'arn:aws:bedrock:*::foundation-model/*'
+      Events:
+        BoardUploaded:
+          Type: S3
+          Properties:
+            Bucket: !Ref BoardBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - { Name: prefix, Value: boards/ }
+
+Outputs:
+  ApiUrl:
+    Description: Paste this into frontend/config.js
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
