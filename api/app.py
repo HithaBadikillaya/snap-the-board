@@ -53,8 +53,14 @@ class ApiError(Exception):
 def reply(status, body):
     return {
         "statusCode": status,
-        "headers": {"Content-Type": "application/json", "Cache-Control": "no-store"},
-        "body": json.dumps(body, default=str),
+        "headers": {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type, x-teacher-key",
+            "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+        },
+        "body": json.dumps(body, default=str) if body is not None else "",
     }
 
 
@@ -285,6 +291,10 @@ def handler(event, context):
     try:
         method = event["requestContext"]["http"]["method"]
         path = event["rawPath"].rstrip("/") or "/"
+
+        if method == "OPTIONS":
+            return reply(204, None)
+
         for route_method, regex, teacher_only, fn in ROUTES:
             match = regex.match(path)
             if route_method == method and match:
